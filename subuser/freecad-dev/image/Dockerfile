@@ -1,4 +1,4 @@
-FROM ubuntu:14.04
+FROM ubuntu:trusty-20190425
 RUN apt-get update
 RUN apt-get install -yqq software-properties-common
 RUN add-apt-repository ppa:freecad-maintainers/freecad-daily
