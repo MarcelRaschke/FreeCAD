@@ -551,7 +551,7 @@ const char* Hole::ThreadClass_ISOmetricfine_Enums[]  = { "4G", "4H", "5G", "5H",
 
 // ISO 965-1:2013 ISO general purpose metric screw threads - Tolerances - Part 1
 // Table 1 - Fundamentral deviations for internal threads ...
-// reproduced in: https://www.accu.co.uk/en/p/134-iso-metric-thread-tolerances [retrived: 2021-01-11]
+// reproduced in: https://www.accu.co.uk/en/p/134-iso-metric-thread-tolerances [retrieved: 2021-01-11]
 const double Hole::ThreadClass_ISOmetric_data[ThreadClass_ISOmetric_data_size][2] = {
 //  Pitch    G
     {0.2,   0.017},
@@ -939,7 +939,7 @@ double Hole::getThreadClassClearance()
 {
     double pitch = getThreadPitch();
 
-    // Calulate how much clearance to add based on Thread tolerance class and pitch
+    // Calculate how much clearance to add based on Thread tolerance class and pitch
     if (ThreadClass.getValueAsString()[1] == 'G') {
         for(unsigned int i=0; i<ThreadClass_ISOmetric_data_size; i++) {
             double p = ThreadClass_ISOmetric_data[i][0];
@@ -1964,9 +1964,9 @@ App::DocumentObjectExecReturn *Hole::execute(void)
         BRep_Builder builder;
         TopoDS_Compound holes;
         builder.MakeCompound(holes);
-
         TopTools_IndexedMapOfShape edgeMap;
         TopExp::MapShapes(profileshape, TopAbs_EDGE, edgeMap);
+        Base::Placement SketchPos = profile->Placement.getValue();
         for ( int i=1 ; i<=edgeMap.Extent() ; i++ ) {
             Standard_Real c_start;
             Standard_Real c_end;
@@ -1978,49 +1978,36 @@ App::DocumentObjectExecReturn *Hole::execute(void)
                 continue;
 
             Handle(Geom_Circle) circle = Handle(Geom_Circle)::DownCast(c);
-
             gp_Pnt loc = circle->Axis().Location();
 
-            gp_Trsf sketchTransformation;
+
             gp_Trsf localSketchTransformation;
-            Base::Placement SketchPos = profile->Placement.getValue();
-            Base::Matrix4D mat = SketchPos.toMatrix();
-            sketchTransformation.SetValues(
-                        mat[0][0], mat[0][1], mat[0][2], mat[0][3],
-                        mat[1][0], mat[1][1], mat[1][2], mat[1][3],
-                        mat[2][0], mat[2][1], mat[2][2], mat[2][3]
-#if OCC_VERSION_HEX < 0x060800
-                        , 0.00001, 0.00001
-#endif
-                    ); //precision was removed in OCCT CR0025194
             localSketchTransformation.SetTranslation( gp_Pnt( 0, 0, 0 ),
                                                       gp_Pnt(loc.X(), loc.Y(), loc.Z()) );
 
             TopoDS_Shape copy = protoHole;
-            BRepBuilderAPI_Transform transformer(copy, localSketchTransformation );
-
-            copy = transformer.Shape();
-            BRepAlgoAPI_Cut mkCut( base, copy );
-            if (!mkCut.IsDone())
-                return new App::DocumentObjectExecReturn("Hole: Cut out of base feature failed");
-
-            TopoDS_Shape result = mkCut.Shape();
-
-            // We have to get the solids (fuse sometimes creates compounds)
-            base = getSolid(result);
-            if (base.IsNull())
-                return new App::DocumentObjectExecReturn("Hole: Resulting shape is not a solid");
-            base = refineShapeIfActive(base);
-            builder.Add(holes, transformer.Shape() );
+            copy.Move(localSketchTransformation);
+            builder.Add(holes, copy);
         }
 
-        // Do not apply a placement to the AddSubShape property (#0003547)
-        //holes.Move( this->getLocation().Inverted() );
+        this->AddSubShape.setValue(holes);
 
-        // set the subtractive shape property for later usage in e.g. pattern
-        this->AddSubShape.setValue( holes );
+        // For some reason it is faster to do the cut through a BooleanOperation.
+        std::unique_ptr<BRepAlgoAPI_BooleanOperation> mkBool(new BRepAlgoAPI_Cut(base, holes));
+        if (!mkBool->IsDone()) {
+            std::stringstream error;
+            error << "Boolean operation failed";
+            return new App::DocumentObjectExecReturn(error.str());
+        }
+        TopoDS_Shape result = mkBool->Shape();
 
-        remapSupportShape(base);
+
+        // We have to get the solids (fuse sometimes creates compounds)
+        base = getSolid(result);
+        if (base.IsNull())
+            return new App::DocumentObjectExecReturn("Hole: Resulting shape is not a solid");
+        base = refineShapeIfActive(base);
+
 
 
         int solidCount = countSolids(base);

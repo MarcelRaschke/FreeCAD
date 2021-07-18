@@ -103,8 +103,10 @@ protected:
     void setupLabels();
     void showCredits();
     void showLicenseInformation();
+    QString getAdditionalLicenseInformation() const;
     void showLibraryInformation();
     void showCollectionInformation();
+    void showOrHideImage(const QRect& rect);
 
 protected Q_SLOTS:
     virtual void on_copyButton_clicked();

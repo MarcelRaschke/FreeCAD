@@ -684,7 +684,7 @@ bool GeomCurve::normalAt(double u, Base::Vector3d& dir) const
     return false;
 }
 
-bool GeomCurve::intersect(  GeomCurve * c,
+bool GeomCurve::intersect(  const GeomCurve *c,
                             std::vector<std::pair<Base::Vector3d, Base::Vector3d>>& points,
                             double tol) const
 {
@@ -1539,6 +1539,37 @@ bool GeomBSplineCurve::removeKnot(int index, int multiplicity, double tolerance)
     }
 }
 
+void GeomBSplineCurve::Trim(double u, double v)
+{
+    auto splitUnwrappedBSpline = [this](double u, double v) {
+        // it makes a copy internally (checked in the source code of OCCT)
+        auto handle = GeomConvert::SplitBSplineCurve (  myCurve,
+                                                            u,
+                                                            v,
+                                                            Precision::Confusion()
+                                                        );
+        setHandle(handle);
+    };
+
+    try {
+        if(!isPeriodic()) {
+            splitUnwrappedBSpline(u, v);
+        }
+        else { // periodic
+            if( v < u ) { // wraps over origin
+                v = v + 1.0; // v needs one extra lap (1.0)
+
+                splitUnwrappedBSpline(u, v);
+            }
+            else {
+                splitUnwrappedBSpline(u, v);
+            }
+        }
+    }
+    catch (Standard_Failure& e) {
+        THROWM(Base::CADKernelError,e.GetMessageString())
+    }
+}
 
 // Persistence implementer
 unsigned int GeomBSplineCurve::getMemSize (void) const

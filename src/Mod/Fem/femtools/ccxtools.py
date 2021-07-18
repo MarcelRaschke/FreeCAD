@@ -366,6 +366,20 @@ class FemToolsCcx(QtCore.QRunnable, QtCore.QObject):
         self.set_inp_file_name()
 
     def write_inp_file(self):
+
+        # get mesh set data
+        # TODO use separate method for getting the mesh set data
+        from femmesh import meshsetsgetter
+        meshdatagetter = meshsetsgetter.MeshSetsGetter(
+            self.analysis,
+            self.solver,
+            self.mesh,
+            membertools.AnalysisMember(self.analysis),
+        )
+        # save the sets into the member objects of the instanz meshdatagetter
+        meshdatagetter.get_mesh_sets()
+
+        # write input file
         import femsolver.calculix.writer as iw
         self.inp_file_name = ""
         try:
@@ -373,14 +387,15 @@ class FemToolsCcx(QtCore.QRunnable, QtCore.QObject):
                 self.analysis,
                 self.solver,
                 self.mesh,
-                self.member,
-                self.working_dir
+                meshdatagetter.member,
+                self.working_dir,
+                meshdatagetter.mat_geo_sets
             )
-            self.inp_file_name = inp_writer.write_calculix_input_file()
+            self.inp_file_name = inp_writer.write_solver_input()
         except Exception:
             FreeCAD.Console.PrintError(
                 "Unexpected error when writing CalculiX input file: {}\n"
-                .format(sys.exc_info()[0])
+                .format(sys.exc_info()[1])
             )
             raise
 
@@ -784,7 +799,12 @@ class FemToolsCcx(QtCore.QRunnable, QtCore.QObject):
         import feminout.importCcxFrdResults as importCcxFrdResults
         frd_result_file = os.path.splitext(self.inp_file_name)[0] + ".frd"
         if os.path.isfile(frd_result_file):
-            importCcxFrdResults.importFrd(frd_result_file, self.analysis, "CCX_")
+            importCcxFrdResults.importFrd(
+                frd_result_file,
+                self.analysis,
+                "CCX_",
+                self.solver.AnalysisType
+            )
             for m in self.analysis.Group:
                 if m.isDerivedFrom("Fem::FemResultObject"):
                     self.results_present = True
@@ -806,19 +826,17 @@ class FemToolsCcx(QtCore.QRunnable, QtCore.QObject):
         """
         import feminout.importCcxDatResults as importCcxDatResults
         dat_result_file = os.path.splitext(self.inp_file_name)[0] + ".dat"
+        mode_frequencies = None
+        dat_content = None
 
         if os.path.isfile(dat_result_file):
             mode_frequencies = importCcxDatResults.import_dat(dat_result_file, self.analysis)
 
-            obj = FreeCAD.ActiveDocument.addObject("App::TextDocument", "ccx dat file")
-            # TODO this object should be inside analysis or under result object
-            # self.result_object.addObject(obj)
-            file = open(dat_result_file, "r")
-            obj.Text = file.read()
-            file.close()
-            # TODO make the Text of obj read only, or the obj itself
+            dat_file = open(dat_result_file, "r")
+            dat_content = dat_file.read()
+            dat_file.close()
         else:
-            raise Exception("FEM: No .dat results found at {}!".format(dat_result_file))
+            raise Exception("FEM: Result file *.dat not found at {}!".format(dat_result_file))
 
         if mode_frequencies:
             # print(mode_frequencies)
@@ -827,6 +845,15 @@ class FemToolsCcx(QtCore.QRunnable, QtCore.QObject):
                     for mf in mode_frequencies:
                         if m.Eigenmode == mf["eigenmode"]:
                             m.EigenmodeFrequency = mf["frequency"]
+
+        if dat_content:
+            # print(dat_content)
+            dat_text_obj = self.analysis.Document.addObject("App::TextDocument", "ccx_dat_file")
+            dat_text_obj.Text = dat_content
+            dat_text_obj.setPropertyStatus("Text", "ReadOnly")  # set property editor readonly
+            if FreeCAD.GuiUp:
+                dat_text_obj.ViewObject.ReadOnly = True  # set editor view readonly
+            self.analysis.addObject(dat_text_obj)
 
 
 class CcxTools(FemToolsCcx):
